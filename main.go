@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -60,8 +61,12 @@ func nextWord(text string) (word string, rest string) {
 		} else if char == '\'' {
 			// XXX - strip this?
 			word = word + string(char)
+		} else if char == '.' || char == ',' || char == '!' || char == '?' || char == ':' || char == ';' || char == '"' {
+			// XXX - strip this?
+			word = word + string(char)
 		} else {
 			if len(word) > 0 {
+				// found a word, so consider this character a break
 				break
 			}
 			// else totally ignore this char
@@ -75,17 +80,23 @@ func nextWord(text string) (word string, rest string) {
 	return word, rest
 }
 
-func (tg *Trigrams) GenerateN(length int) (string, error) {
+func (tg *Trigrams) GenerateN(start string, length int) (string, error) {
 	tg.lock.RLock()
 	defer tg.lock.RUnlock()
 
 	key := ""
-	for key = range tg.data {
-		break
+	if start != "" {
+		key = start
+	} else {
+		for key = range tg.data {
+			break
+		}
 	}
+
 	if key == "" {
 		return "", errors.New("no data")
 	}
+
 	out := key
 	for i := length; i > 0; i-- {
 		list := tg.data[key]
@@ -137,9 +148,16 @@ func main() {
 			return
 		}
 
-		res, err := trigrams.GenerateN(100)
+		start := r.URL.Query().Get("start")
+		lengthS := r.URL.Query().Get("length")
+		length, err := strconv.Atoi(lengthS)
+		if length < 2 {
+			length = 100
+		}
+
+		res, err := trigrams.GenerateN(start, length)
 		if err != nil {
-			w.WriteHeader(400)
+			w.WriteHeader(500)
 			return
 		}
 
@@ -147,7 +165,8 @@ func main() {
 	})
 
 	http.HandleFunc("/grams", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "%v", trigrams)
+		// XXX - DEMONSTRATION PURPOSES - not locked
+		fmt.Fprintf(w, "%v", trigrams.data)
 	})
 
 	err := http.ListenAndServe(addr, nil)
