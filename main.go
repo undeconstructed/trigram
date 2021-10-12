@@ -1,9 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"math/rand"
 	"net/http"
 	"strconv"
@@ -11,11 +12,82 @@ import (
 	"sync"
 )
 
+// const KeepRunes = ".,!\"':;"
+const KeepRunes = "'.,"
+
+// Trigram is just three strings
+// XXX - is it weird to use an array?
+type Trigram [3]string
+
+// Trigramizer pulls successive Trigrams from a stream
+type Trigramizer struct {
+	a, b string
+	in   io.RuneReader
+}
+
+// Next pulls the next Trigram
+func (t *Trigramizer) Next() (Trigram, error) {
+	if t.a == "" {
+		// never rune
+		t.a = nextWord(t.in)
+		t.b = nextWord(t.in)
+	}
+	if t.b == "" {
+		// no more data
+		return Trigram{}, io.EOF
+	}
+
+	c := nextWord(t.in)
+	if c == "" {
+		// now that's the end
+		t.b = c
+		return Trigram{}, io.EOF
+	}
+
+	out := Trigram{t.a, t.b, c}
+	t.a = t.b
+	t.b = c
+
+	return out, nil
+}
+
+// nextWord acquires a word from a stream
+func nextWord(in io.RuneReader) string {
+	word := ""
+	for {
+		rune, _, err := in.ReadRune()
+		if err != nil {
+			if err == io.EOF {
+				return word
+			}
+			// TODO - better
+			return ""
+		}
+		if rune >= 'a' && rune <= 'z' {
+			word = word + string(rune)
+		} else if rune >= 'A' && rune <= 'Z' {
+			// XXX - change case ?
+			word = word + string(rune)
+		} else if strings.Contains(KeepRunes, string(rune)) {
+			word = word + string(rune)
+		} else {
+			if len(word) > 0 {
+				// found a word, so consider this runeacter a break
+				break
+			}
+			// else totally ignore this rune
+		}
+	}
+	return word
+}
+
+// Trigrams is the database of Trigrams and generator of text
 type Trigrams struct {
 	data map[string][]string
 	lock sync.RWMutex
 }
 
+// NewTrigrams makes an empty Trigrams
 func NewTrigrams() *Trigrams {
 	out := &Trigrams{
 		data: map[string][]string{},
@@ -23,63 +95,67 @@ func NewTrigrams() *Trigrams {
 	return out
 }
 
-func (tg *Trigrams) LearnText(text string) (int, error) {
+// InputTrigrams adds to the database
+func (tg *Trigrams) InputTrigrams(input []Trigram) error {
 	tg.lock.Lock()
 	defer tg.lock.Unlock()
 
-	count := 0
-	var a, b, c string
-	a, text = nextWord(text)
-	b, text = nextWord(text)
-	if a == "" || b == "" {
-		return 0, nil
+	for _, i := range input {
+		key := i[0] + " " + i[1]
+		list := tg.data[key]
+		list = append(list, i[2])
+		tg.data[key] = list
 	}
-	for {
-		c, text = nextWord(text)
-		if c == "" {
-			break
-		}
-		start := a + " " + b
-		list := tg.data[start]
-		list = append(list, c)
-		tg.data[start] = list
-		count++
-		a = b
-		b = c
-	}
-	return count, nil
+
+	return nil
 }
 
-func nextWord(text string) (word string, rest string) {
-	n, char := 0, '.'
-	for n, char = range text {
-		if char >= 'a' && char <= 'z' {
-			word = word + string(char)
-		} else if char >= 'A' && char <= 'Z' {
-			// XXX - change case ?
-			word = word + string(char)
-		} else if char == '\'' {
-			// XXX - strip this?
-			word = word + string(char)
-		} else if char == '.' || char == ',' || char == '!' || char == '?' || char == ':' || char == ';' || char == '"' {
-			// XXX - strip this?
-			word = word + string(char)
-		} else {
-			if len(word) > 0 {
-				// found a word, so consider this character a break
+// LearnTextStream is a somewhat efficient way of parsing text and storing as Trigrams
+func (tg *Trigrams) LearnTextStream(stream io.RuneReader) (int, error) {
+	tz := &Trigramizer{in: stream}
+
+	batch := make([]Trigram, 0, 100)
+
+	n := 0
+	for {
+		t, err := tz.Next()
+		if err != nil {
+			if err == io.EOF {
+				// done
 				break
 			}
-			// else totally ignore this char
+			// real error
+			return n, nil
+		}
+		batch = append(batch, t)
+		n++
+
+		if n%100 == 0 {
+			err := tg.InputTrigrams(batch)
+			if err != nil {
+				return n, err
+			}
+			batch = batch[0:0]
 		}
 	}
-	if n < len(text) {
-		rest = text[n+1:]
-	} else {
-		rest = ""
+
+	if len(batch) > 0 {
+		err := tg.InputTrigrams(batch)
+		if err != nil {
+			return n, err
+		}
 	}
-	return word, rest
+
+	return n, nil
 }
 
+// LearnTextStream is nothing.
+func (tg *Trigrams) LearnTextString(text string) (int, error) {
+	stream := strings.NewReader(text)
+	return tg.LearnTextStream(stream)
+}
+
+// GenerateN generates N words of text. If the start string contains 2 words, it will start from that.
 func (tg *Trigrams) GenerateN(start string, length int) (string, error) {
 	tg.lock.RLock()
 	defer tg.lock.RUnlock()
@@ -127,19 +203,15 @@ func main() {
 			w.WriteHeader(400)
 			return
 		}
-		text, err := ioutil.ReadAll(r.Body)
+
+		stream := bufio.NewReader(r.Body)
+		n, err := trigrams.LearnTextStream(stream)
 		if err != nil {
 			w.WriteHeader(400)
 			return
 		}
 
-		res, err := trigrams.LearnText(string(text))
-		if err != nil {
-			w.WriteHeader(400)
-			return
-		}
-
-		fmt.Fprintf(w, "%v", res)
+		fmt.Fprintf(w, "%v\n", n)
 	})
 
 	http.HandleFunc("/generate", func(w http.ResponseWriter, r *http.Request) {
@@ -161,12 +233,22 @@ func main() {
 			return
 		}
 
-		fmt.Fprintf(w, "%v", res)
+		fmt.Fprintf(w, "%v\n", res)
 	})
 
 	http.HandleFunc("/grams", func(w http.ResponseWriter, r *http.Request) {
 		// XXX - DEMONSTRATION PURPOSES - not locked
-		fmt.Fprintf(w, "%v", trigrams.data)
+		fmt.Fprintf(w, "%v\n", trigrams.data)
+	})
+
+	http.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
+		// XXX - DEMONSTRATION PURPOSES - not locked
+		prefixes := len(trigrams.data)
+		total := 0
+		for _, v := range trigrams.data {
+			total += len(v)
+		}
+		fmt.Fprintf(w, "prefixes: %d, endings: %d, ratio: %f\n", prefixes, total, float64(total)/float64(prefixes))
 	})
 
 	err := http.ListenAndServe(addr, nil)
