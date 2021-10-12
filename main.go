@@ -7,10 +7,12 @@ import (
 	"math/rand"
 	"net/http"
 	"strings"
+	"sync"
 )
 
 type Trigrams struct {
 	data map[string][]string
+	lock sync.RWMutex
 }
 
 func NewTrigrams() *Trigrams {
@@ -21,6 +23,9 @@ func NewTrigrams() *Trigrams {
 }
 
 func (tg *Trigrams) LearnText(text string) (int, error) {
+	tg.lock.Lock()
+	defer tg.lock.Unlock()
+
 	count := 0
 	var a, b, c string
 	a, text = nextWord(text)
@@ -71,6 +76,9 @@ func nextWord(text string) (word string, rest string) {
 }
 
 func (tg *Trigrams) GenerateN(length int) (string, error) {
+	tg.lock.RLock()
+	defer tg.lock.RUnlock()
+
 	key := ""
 	for key = range tg.data {
 		break
