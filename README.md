@@ -21,7 +21,7 @@ $ curl -s 'localhost:8080/grams?start=to%20my'
 
 ## Function
 
-Text streams are broken into words, then into trigrams, then batch-posted into the database. The parsing is done in the HTTP routines, so the database is only locked when the trigrams are being inserted.
+Text streams are broken into words, then into trigrams, then batch-posted into the database. The parsing is done in the HTTP routines, and the database is only locked when the trigrams are being inserted.
 
 Generation happens in a read lock.
 
