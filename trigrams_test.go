@@ -86,3 +86,24 @@ func TestTrigramizerEmpty(t *testing.T) {
 		t.Errorf("error: %v", err)
 	}
 }
+
+func TestTrigrams(t *testing.T) {
+	tg := NewTrigrams()
+
+	in := []Trigram{
+		{"a", "b", "c"},
+		{"b", "c", "d"},
+		{"c", "d", "e"},
+	}
+	tg.InputTrigrams(in)
+
+	out, err := tg.GenerateN("a b", 100)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+
+	// only one output is possible from the trigrams
+	if out != "a b c d e" {
+		t.Errorf("bad output: %s", out)
+	}
+}

@@ -28,7 +28,7 @@ func main() {
 		}
 
 		stream := bufio.NewReader(r.Body)
-		n, err := trigrams.LearnTextStream(stream, *keepp)
+		n, err := LearnTextStream(trigrams, stream, *keepp)
 		if err != nil {
 			w.WriteHeader(500)
 			return
@@ -45,7 +45,7 @@ func main() {
 
 		start := r.URL.Query().Get("start")
 		lengthS := r.URL.Query().Get("length")
-		length, err := strconv.Atoi(lengthS)
+		length, _ := strconv.Atoi(lengthS)
 		if length < 2 {
 			length = 100
 		}

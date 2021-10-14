@@ -131,8 +131,41 @@ func (tg *Trigrams) InputTrigrams(input []Trigram) error {
 	return nil
 }
 
+// GenerateN generates N words of text. If the start string contains 2 words, it will start from that.
+func (tg *Trigrams) GenerateN(start string, length int) (string, error) {
+	tg.lock.RLock()
+	defer tg.lock.RUnlock()
+
+	// first two words are key to third
+	key := ""
+	if start != "" {
+		key = start
+	} else {
+		for key = range tg.data {
+			break
+		}
+	}
+
+	if key == "" {
+		return "", errors.New("no data")
+	}
+
+	out := key
+	for i := length; i > 0; i-- {
+		list := tg.data[key]
+		if list == nil {
+			break
+		}
+		rn := rand.Intn(len(list))
+		nextWord := list[rn]
+		out += " " + nextWord
+		key = strings.Split(key, " ")[1] + " " + nextWord
+	}
+	return out, nil
+}
+
 // LearnTextStream is a somewhat efficient way of parsing text and storing as Trigrams
-func (tg *Trigrams) LearnTextStream(stream io.RuneReader, keep string) (int, error) {
+func LearnTextStream(tg *Trigrams, stream io.RuneReader, keep string) (int, error) {
 	tz := &Trigramizer{in: &Wordizer{in: stream, keep: keep}}
 
 	batch := make([]Trigram, 0, 100)
@@ -170,41 +203,8 @@ func (tg *Trigrams) LearnTextStream(stream io.RuneReader, keep string) (int, err
 	return n, nil
 }
 
-// LearnTextStream is nothing.
-func (tg *Trigrams) LearnTextString(text string, keep string) (int, error) {
+// LearnTextStream sends text to the Trigrams.
+func LearnTextString(tg *Trigrams, text string, keep string) (int, error) {
 	stream := strings.NewReader(text)
-	return tg.LearnTextStream(stream, keep)
-}
-
-// GenerateN generates N words of text. If the start string contains 2 words, it will start from that.
-func (tg *Trigrams) GenerateN(start string, length int) (string, error) {
-	tg.lock.RLock()
-	defer tg.lock.RUnlock()
-
-	// first two words are key to third
-	key := ""
-	if start != "" {
-		key = start
-	} else {
-		for key = range tg.data {
-			break
-		}
-	}
-
-	if key == "" {
-		return "", errors.New("no data")
-	}
-
-	out := key
-	for i := length; i > 0; i-- {
-		list := tg.data[key]
-		if list == nil {
-			break
-		}
-		rn := rand.Intn(len(list))
-		nextWord := list[rn]
-		out += " " + nextWord
-		key = strings.Split(key, " ")[1] + " " + nextWord
-	}
-	return out, nil
+	return LearnTextStream(tg, stream, keep)
 }
