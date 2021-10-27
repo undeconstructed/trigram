@@ -7,6 +7,14 @@ import (
 	"testing"
 )
 
+func TestTrigram(t *testing.T) {
+	t0 := Trigram{"a", "b", "c", "d"}
+	t1 := t0.Prefix(3)
+	if l := t1.String(); l != "a b c" {
+		t.Errorf("wrong prefix: %v", l)
+	}
+}
+
 func TestWordizer(t *testing.T) {
 	text := strings.NewReader("   one two three's !!! fou!rr five SIX seVen's ei")
 	words := &Wordizer{in: text, keep: "'.,"}
@@ -53,9 +61,9 @@ func (fw *fakewords) ReadWord() (string, error) {
 	return w, nil
 }
 
-func TestTrigramizer(t *testing.T) {
+func TestTrigramizer3(t *testing.T) {
 	fw := &fakewords{words: []string{"1", "2", "3", "4", "5", "6"}}
-	tz := &Trigramizer{in: fw}
+	tz := &Trigramizer{n: 3, in: fw}
 	re, err := tz.ReadTrigram()
 	if err != nil {
 		t.Error("error")
@@ -69,9 +77,25 @@ func TestTrigramizer(t *testing.T) {
 	}
 }
 
+func TestTrigramizer4(t *testing.T) {
+	fw := &fakewords{words: []string{"1", "2", "3", "4", "5", "6"}}
+	tz := &Trigramizer{n: 4, in: fw}
+	re, err := tz.ReadTrigram()
+	if err != nil {
+		t.Error("error")
+	}
+	if s := re.String(); s != "1 2 3 4" {
+		t.Errorf("bad 1: %s", s)
+	}
+	re, err = tz.ReadTrigram()
+	if s := re.String(); s != "2 3 4 5" {
+		t.Errorf("bad 1: %s", s)
+	}
+}
+
 func TestTrigramizerShort(t *testing.T) {
 	fw := &fakewords{words: []string{"1", "2"}}
-	tz := &Trigramizer{in: fw}
+	tz := &Trigramizer{n: 3, in: fw}
 	_, err := tz.ReadTrigram()
 	if err != io.EOF {
 		t.Errorf("error: %v", err)
@@ -80,15 +104,15 @@ func TestTrigramizerShort(t *testing.T) {
 
 func TestTrigramizerEmpty(t *testing.T) {
 	fw := &fakewords{words: []string{}}
-	tz := &Trigramizer{in: fw}
+	tz := &Trigramizer{n: 3, in: fw}
 	_, err := tz.ReadTrigram()
 	if err != io.EOF {
 		t.Errorf("error: %v", err)
 	}
 }
 
-func TestTrigrams(t *testing.T) {
-	tg := NewTrigrams()
+func TestTrigrams3(t *testing.T) {
+	tg := NewTrigrams(3)
 
 	in := []Trigram{
 		{"a", "b", "c"},
@@ -104,6 +128,27 @@ func TestTrigrams(t *testing.T) {
 
 	// only one output is possible from the trigrams
 	if out != "a b c d e" {
+		t.Errorf("bad output: %s", out)
+	}
+}
+
+func TestTrigrams4(t *testing.T) {
+	tg := NewTrigrams(4)
+
+	in := []Trigram{
+		{"a", "b", "c", "x"},
+		{"b", "c", "x", "d"},
+		{"c", "x", "d", "e"},
+	}
+	tg.InputTrigrams(in)
+
+	out, err := tg.GenerateN("a b c", 100)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+
+	// only one output is possible from the trigrams
+	if out != "a b c x d e" {
 		t.Errorf("bad output: %s", out)
 	}
 }

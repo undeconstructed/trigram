@@ -49,12 +49,19 @@ func (w *Wordizer) ReadWord() (string, error) {
 }
 
 // Trigram is just three strings
-// XXX - is it weird to use an array?
-type Trigram [3]string
+type Trigram []string
 
 func (t Trigram) String() string {
-	ss := [3]string(t)
+	ss := []string(t)
 	return strings.Join(ss[:], " ")
+}
+
+func (t Trigram) Prefix(n int) Trigram {
+	return Trigram(t[0:n])
+}
+
+func (t Trigram) Last() string {
+	return t[len(t)-1]
 }
 
 // TrigramReader has ReadTrigram
@@ -64,53 +71,58 @@ type TrigramReader interface {
 
 // Trigramizer pulls successive Trigrams from a stream
 type Trigramizer struct {
-	a, b string
+	// last n-1 words read
+	last []string
+	n    int
 	in   WordReader
 }
 
 // Next pulls the next Trigram
-func (t *Trigramizer) ReadTrigram() (out Trigram, err error) {
-	a, b, c := t.a, t.b, ""
-	if a == "" {
-		// initialisation
-		a, err = t.in.ReadWord()
+func (t *Trigramizer) ReadTrigram() (Trigram, error) {
+	// fill the last buffer
+
+	for len(t.last) < t.n-1 {
+		w, err := t.in.ReadWord()
 		if err != nil {
-			return
+			return nil, err
 		}
-		t.a = a
-		b, err = t.in.ReadWord()
-		if err != nil {
-			return
-		}
-		t.b = b
-	}
-	if b == "" {
-		// no more data
-		return Trigram{}, io.EOF
+		t.last = append(t.last, w)
 	}
 
-	c, err = t.in.ReadWord()
+	c, err := t.in.ReadWord()
 	if err != nil {
-		return
+		return nil, err
 	}
 
-	out = Trigram{a, b, c}
-	t.a = b
-	t.b = c
+	// build the ngram
+
+	out := []string{}
+	out = append(out, t.last...)
+	out = append(out, c)
+
+	// remember the last n-1
+
+	t.last = append(t.last[1:], c)
 
 	return out, nil
 }
 
 // Trigrams is the database of Trigrams and generator of text
 type Trigrams struct {
+	n int
 	// first two words + third words
 	data map[string][]string
 	lock sync.RWMutex
 }
 
 // NewTrigrams makes an empty Trigrams
-func NewTrigrams() *Trigrams {
+func NewTrigrams(n int) *Trigrams {
+	if n < 2 {
+		panic("less than 3")
+	}
+
 	out := &Trigrams{
+		n:    n,
 		data: map[string][]string{},
 	}
 	return out
@@ -121,11 +133,18 @@ func (tg *Trigrams) InputTrigrams(input []Trigram) error {
 	tg.lock.Lock()
 	defer tg.lock.Unlock()
 
-	for _, i := range input {
-		key := i[0] + " " + i[1]
-		list := tg.data[key]
-		list = append(list, i[2])
-		tg.data[key] = list
+	for _, ngram := range input {
+		if len(ngram) != tg.n {
+			panic("bad")
+		}
+
+		prefix := ngram.Prefix(tg.n - 1)
+		key := strings.Join(prefix, " ")
+
+		nthWords := tg.data[key]
+		nthWords = append(nthWords, ngram.Last())
+
+		tg.data[key] = nthWords
 	}
 
 	return nil
@@ -136,7 +155,7 @@ func (tg *Trigrams) GenerateN(start string, length int) (string, error) {
 	tg.lock.RLock()
 	defer tg.lock.RUnlock()
 
-	// first two words are key to third
+	// first n-1 words are key to n
 	key := ""
 	if start != "" {
 		key = start
@@ -152,21 +171,21 @@ func (tg *Trigrams) GenerateN(start string, length int) (string, error) {
 
 	out := key
 	for i := length; i > 0; i-- {
-		list := tg.data[key]
-		if list == nil {
+		nthWords := tg.data[key]
+		if nthWords == nil {
 			break
 		}
-		rn := rand.Intn(len(list))
-		nextWord := list[rn]
+		rn := rand.Intn(len(nthWords))
+		nextWord := nthWords[rn]
 		out += " " + nextWord
-		key = strings.Split(key, " ")[1] + " " + nextWord
+		key = strings.SplitN(key, " ", 2)[1] + " " + nextWord
 	}
 	return out, nil
 }
 
 // LearnTextStream is a somewhat efficient way of parsing text and storing as Trigrams
-func LearnTextStream(tg *Trigrams, stream io.RuneReader, keep string) (int, error) {
-	tz := &Trigramizer{in: &Wordizer{in: stream, keep: keep}}
+func LearnTextStream(tg *Trigrams, size int, stream io.RuneReader, keep string) (int, error) {
+	tz := &Trigramizer{n: size, in: &Wordizer{in: stream, keep: keep}}
 
 	batch := make([]Trigram, 0, 100)
 
@@ -204,7 +223,7 @@ func LearnTextStream(tg *Trigrams, stream io.RuneReader, keep string) (int, erro
 }
 
 // LearnTextStream sends text to the Trigrams.
-func LearnTextString(tg *Trigrams, text string, keep string) (int, error) {
+func LearnTextString(tg *Trigrams, size int, text string, keep string) (int, error) {
 	stream := strings.NewReader(text)
-	return LearnTextStream(tg, stream, keep)
+	return LearnTextStream(tg, size, stream, keep)
 }

@@ -9,13 +9,14 @@ import (
 )
 
 func main() {
+	np := flag.Int("n", 3, "size of the ngrams")
 	addrp := flag.String("addr", "0.0.0.0:8080", "bind addr")
 	keepp := flag.String("keep", "',.", "to keep")
 	flag.Parse()
 
 	fmt.Printf("trigram (%s): http://%s/\n", *keepp, *addrp)
 
-	trigrams := NewTrigrams()
+	trigrams := NewTrigrams(*np)
 
 	http.HandleFunc("/learn", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
@@ -28,7 +29,7 @@ func main() {
 		}
 
 		stream := bufio.NewReader(r.Body)
-		n, err := LearnTextStream(trigrams, stream, *keepp)
+		n, err := LearnTextStream(trigrams, *np, stream, *keepp)
 		if err != nil {
 			w.WriteHeader(500)
 			return

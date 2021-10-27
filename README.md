@@ -42,3 +42,11 @@ Third words can be stored multiple times in the same list (e.g. "on the" => ["be
 * The spec says text/plain input, but shows curl with no content type set. I explicitly checked for text/plain.
 * LearnTextStream is not testable - the batching should be separated out from the reading/writing.
 * Global random source is used, so again not testable.
+
+
+TODO
+
+switched array to slice
+parser fixed at a, b, c
+add a ngram flag
+store n-1 -> 1
